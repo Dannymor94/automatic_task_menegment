@@ -52,15 +52,42 @@ export default function App() {
     return () => { stop = true; };
   }, [screen, meetingId]);
 
+  const openReview = (meeting_id) => {
+    setMeetingId(meeting_id);
+    setStatus("uploaded");
+    setScreen("processing");
+  };
+
+  // Вернуться в главное меню (шаг 1). Сбрасываем состояние текущего разбора.
+  const goHome = () => {
+    setScreen("upload");
+    setMeetingId(null);
+    setStatus(null);
+    setTasks([]);
+    setSent(null);
+    setError(null);
+  };
+
   const startUpload = async (source, project) => {
     setError(null);
     try {
       const { meeting_id } = source.url
         ? await api.uploadUrl(source.url, project)
         : await api.upload(source.file, project);
-      setMeetingId(meeting_id);
-      setStatus("uploaded");
-      setScreen("processing");
+      openReview(meeting_id);
+    } catch (e) {
+      setError(String(e.message || e));
+    }
+  };
+
+  // SimpleNote: обработать выбранные заметки → открыть ревью первой (остальные тоже в БД).
+  const startSimplenote = async (noteIds, project) => {
+    setError(null);
+    try {
+      const { results } = await api.simplenoteProcess(noteIds, project);
+      const ok = results.filter((r) => r.meeting_id);
+      if (ok.length === 0) throw new Error("Ни одна заметка не обработалась");
+      openReview(ok[0].meeting_id);
     } catch (e) {
       setError(String(e.message || e));
     }
@@ -81,25 +108,30 @@ export default function App() {
 
   return (
     <>
-      <Masthead meetingId={meetingId} status={status} />
+      <Masthead meetingId={meetingId} status={status} onHome={goHome} canHome={screen !== "upload"} />
       <main className="wrap">
         {error && <p className="err">⚠ {error}</p>}
-        {screen === "upload" && <Upload onStart={startUpload} />}
-        {screen === "processing" && <Processing status={status} />}
+        {screen === "upload" && <Upload onStart={startUpload} onSimplenote={startSimplenote} />}
+        {screen === "processing" && <Processing status={status} onHome={goHome} />}
         {screen === "review" && (
-          <Review tasks={tasks} setTasks={setTasks} onSend={send} />
+          <Review tasks={tasks} setTasks={setTasks} onSend={send} onHome={goHome} />
         )}
-        {screen === "sent" && <Sent result={sent} />}
+        {screen === "sent" && <Sent result={sent} onHome={goHome} />}
       </main>
     </>
   );
 }
 
-function Masthead({ meetingId, status }) {
+function Masthead({ meetingId, status, onHome, canHome }) {
   return (
     <header className="masthead">
       <div className="masthead-inner">
-        <div className="wordmark">
+        <div
+          className={"wordmark" + (canHome ? " clickable" : "")}
+          onClick={canHome ? onHome : undefined}
+          role={canHome ? "button" : undefined}
+          title={canHome ? "В главное меню" : undefined}
+        >
           Созвон <span className="arrow">→</span> Задачи
         </div>
         <div className="masthead-meta">
@@ -113,7 +145,14 @@ function Masthead({ meetingId, status }) {
   );
 }
 
-function Upload({ onStart }) {
+const SOURCES = [
+  { key: "audio", label: "Аудио / транскрипт" },
+  { key: "url", label: "Ссылка" },
+  { key: "simplenote", label: "SimpleNote" },
+];
+
+function Upload({ onStart, onSimplenote }) {
+  const [source, setSource] = useState("audio");
   const [file, setFile] = useState(null);
   const [url, setUrl] = useState("");
   const [projects, setProjects] = useState([]); // [{project_id, title, board_id, column_id}]
@@ -124,7 +163,6 @@ function Upload({ onStart }) {
   const inputRef = useRef();
 
   useEffect(() => {
-    // Реальные проекты YouGile (живой API) для выпадашки.
     api.yougileProjects().then((p) => {
       setProjects(p);
       if (p[0]) setProjectTitle(p[0].title);
@@ -148,40 +186,58 @@ function Upload({ onStart }) {
         </button>
       </div>
 
-      <div
-        className={"dropzone" + (over ? " over" : "")}
-        onDragOver={(e) => { e.preventDefault(); setOver(true); }}
-        onDragLeave={() => setOver(false)}
-        onDrop={onDrop}
-        onClick={() => inputRef.current?.click()}
-        role="button"
-        tabIndex={0}
-      >
-        <div className="eyebrow">аудио или транскрипт</div>
-        <h2>Перетащите запись созвона</h2>
-        <p>или нажмите, чтобы выбрать файл · mp3, m4a, wav, txt, md</p>
-        {file && <div className="filename">{file.name}</div>}
-      </div>
-      {/* input — СИБЛИНГ дропзоны, не потомок: иначе input.click() всплывает обратно
-          в onClick дропзоны и вызывает .click() повторно → Chrome глушит диалог. */}
-      <input
-        ref={inputRef}
-        type="file"
-        accept=".mp3,.mp4,.m4a,.wav,.webm,.txt,.md"
-        style={{ display: "none" }}
-        onChange={(e) => { setFile(e.target.files[0] || null); setUrl(""); }}
-      />
-
-      <div className="url-row">
-        <span className="eyebrow">или вставьте ссылку</span>
-        <input
-          className="text-input url-input"
-          placeholder="https://… · Яндекс.Диск · Google Drive"
-          value={url}
-          onChange={(e) => { setUrl(e.target.value); if (e.target.value) setFile(null); }}
-        />
+      <div className="source-tabs">
+        {SOURCES.map((s) => (
+          <button
+            key={s.key}
+            className={"source-tab" + (source === s.key ? " active" : "")}
+            onClick={() => setSource(s.key)}
+          >
+            {s.label}
+          </button>
+        ))}
       </div>
 
+      {source === "audio" && (
+        <>
+          <div
+            className={"dropzone" + (over ? " over" : "")}
+            onDragOver={(e) => { e.preventDefault(); setOver(true); }}
+            onDragLeave={() => setOver(false)}
+            onDrop={onDrop}
+            onClick={() => inputRef.current?.click()}
+            role="button"
+            tabIndex={0}
+          >
+            <div className="eyebrow">аудио или транскрипт</div>
+            <h2>Перетащите запись созвона</h2>
+            <p>или нажмите, чтобы выбрать файл · mp3, m4a, wav, txt, md</p>
+            {file && <div className="filename">{file.name}</div>}
+          </div>
+          {/* input — СИБЛИНГ дропзоны, не потомок (иначе input.click() всплывает обратно). */}
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".mp3,.mp4,.m4a,.wav,.webm,.txt,.md"
+            style={{ display: "none" }}
+            onChange={(e) => { setFile(e.target.files[0] || null); setUrl(""); }}
+          />
+        </>
+      )}
+
+      {source === "url" && (
+        <div className="url-row">
+          <span className="eyebrow">ссылка на файл</span>
+          <input
+            className="text-input url-input"
+            placeholder="https://… · Яндекс.Диск · Google Drive"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+        </div>
+      )}
+
+      {/* Проект — общий для всех источников */}
       <div className="field-row">
         <div className="field">
           <label htmlFor="proj">Проект из YouGile (маршрут)</label>
@@ -193,19 +249,90 @@ function Upload({ onStart }) {
             ))}
           </select>
         </div>
-        {url.trim() ? (
-          <button className="btn" onClick={() => onStart({ url: url.trim() }, selectedProject)}>
-            Скачать и разобрать
-          </button>
-        ) : (
+        {source === "audio" && (
           <button className="btn" disabled={!file} onClick={() => onStart({ file }, selectedProject)}>
             Разобрать созвон
           </button>
         )}
+        {source === "url" && (
+          <button className="btn" disabled={!url.trim()} onClick={() => onStart({ url: url.trim() }, selectedProject)}>
+            Скачать и разобрать
+          </button>
+        )}
       </div>
+
+      {source === "simplenote" && (
+        <SimpleNotePanel project={selectedProject} onProcess={onSimplenote} />
+      )}
 
       {teamOpen && <TeamModal projects={projects} defaultProject={projectTitle} onClose={() => setTeamOpen(false)} />}
     </section>
+  );
+}
+
+function SimpleNotePanel({ project, onProcess }) {
+  const [tag, setTag] = useState("task");
+  const [notes, setNotes] = useState(null); // null = ещё не грузили
+  const [checked, setChecked] = useState({}); // id -> bool
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const load = async () => {
+    setLoading(true); setError(null); setNotes(null); setChecked({});
+    try {
+      setNotes(await api.simplenoteNotes(tag.trim() || null));
+    } catch (e) {
+      setError(String(e.message || e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const selectedIds = Object.keys(checked).filter((id) => checked[id]);
+
+  return (
+    <div className="sn-panel">
+      <div className="sn-controls">
+        <div className="field">
+          <label htmlFor="sn-tag">Тег</label>
+          <input id="sn-tag" className="text-input" value={tag}
+            onChange={(e) => setTag(e.target.value)} placeholder="task" />
+        </div>
+        <button className="btn btn-ghost" onClick={load} disabled={loading}>
+          {loading ? "Загрузка…" : "Загрузить заметки"}
+        </button>
+      </div>
+
+      {error && <p className="err">⚠ {error}</p>}
+
+      {notes && notes.length === 0 && (
+        <p className="eyebrow" style={{ marginTop: 14 }}>Заметок с тегом «{tag}» не найдено.</p>
+      )}
+
+      {notes && notes.length > 0 && (
+        <>
+          <ul className="sn-list">
+            {notes.map((n) => (
+              <li key={n.id}>
+                <input type="checkbox" checked={!!checked[n.id]}
+                  onChange={(e) => setChecked({ ...checked, [n.id]: e.target.checked })} />
+                <span className="sn-preview">{n.preview || "(пустая заметка)"}</span>
+                <span className={"sn-badge " + (n.type === "structured" ? "struct" : "raw")}>
+                  {n.type === "structured" ? "структура" : "сырьё"}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className="field-row">
+            <span className="count">выбрано <b>{selectedIds.length}</b> из {notes.length}</span>
+            <button className="btn" disabled={selectedIds.length === 0}
+              onClick={() => onProcess(selectedIds, project)}>
+              Обработать выбранные
+            </button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -330,11 +457,12 @@ function PersonEditRow({ person, projects, onSave, onCancel }) {
   );
 }
 
-function Processing({ status }) {
+function Processing({ status, onHome }) {
   const idx = STEPS.findIndex((s) => s.key === status);
   const active = idx === -1 ? 0 : idx;
   return (
     <section className="proc">
+      <button className="btn-ghost btn-small back-btn" onClick={onHome}>← В главное меню</button>
       <div className="eyebrow">шаг 2 · обработка</div>
       <div className="steps">
         {STEPS.map((s, i) => (
@@ -351,7 +479,7 @@ function Processing({ status }) {
   );
 }
 
-function Review({ tasks, setTasks, onSend }) {
+function Review({ tasks, setTasks, onSend, onHome }) {
   const flaggedCount = tasks.filter((t) => (t.validator_flags || []).length).length;
   const approvedCount = tasks.filter((t) => t._approved).length;
 
@@ -362,6 +490,7 @@ function Review({ tasks, setTasks, onSend }) {
     <section>
       <div className="review-head">
         <div>
+          <button className="btn-ghost btn-small back-btn" onClick={onHome}>← В главное меню</button>
           <div className="eyebrow">шаг 3 · ревью · запись только по одобрению</div>
           <h1>Черновики задач</h1>
         </div>
@@ -474,10 +603,11 @@ function IdPill({ id }) {
   );
 }
 
-function Sent({ result }) {
+function Sent({ result, onHome }) {
   if (!result) return null;
   return (
     <section className="sent">
+      <button className="btn-ghost btn-small back-btn" onClick={onHome}>← В главное меню</button>
       <div className="eyebrow">записано в YouGile</div>
       <h1>Отправлено · {result.written} новых, {result.skipped} уже были</h1>
       <p className="eyebrow">статус созвона: {result.status}</p>

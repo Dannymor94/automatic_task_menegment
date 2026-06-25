@@ -301,6 +301,38 @@ def test_yougile_write_dedup_by_column_title() -> None:
     check("same title in same run -> skipped_existing", b["status"] == "skipped_existing", str(b))
 
 
+def test_simplenote_classify_and_fastpath() -> None:
+    print("test_simplenote_classify_and_fastpath")
+    import db
+    import repo
+    import simplenote_source as sn
+    db.create_all()
+
+    structured = "#task\n- Позвонить подрядчику\n- [ ] Выложить лендинг к пятнице"
+    raw = ("надо подумать про маркетинг нового потока, мыслей много, "
+           "не уверен с чего начать, может аналитику сначала")
+    single = "ЗАДАЧА подготовить отчёт по продажам"
+
+    check("bullets -> structured", sn.classify_note(structured) == "structured")
+    check("stream -> raw", sn.classify_note(raw) == "raw")
+    check("single formulation -> structured", sn.classify_note(single) == "structured")
+
+    # маркеры пунктов снимаются (включая «- [ ]»)
+    titles = [t["title"] for t in sn.build_structured_tasks(structured)]
+    check("markers stripped", titles == ["Позвонить подрядчику", "Выложить лендинг к пятнице"],
+          str(titles))
+
+    # быстрый путь: meeting(awaiting_review) без LLM
+    mid = repo.create_meeting("simplenote:test", "uploaded")
+    n = sn.process_structured(mid, structured, None)
+    m = repo.get_meeting(mid)
+    check("fast path: 2 tasks", n == 2)
+    check("fast path: awaiting_review", m["status"] == "awaiting_review")
+    check("fast path: marked fast", m["result_json"].get("fast_path") is True)
+    check("fast path: internal_ids set",
+          all(t.get("internal_id") for t in m["result_json"]["tasks"]))
+
+
 def test_provider_failover() -> None:
     print("test_provider_failover")
     import httpx
@@ -403,6 +435,7 @@ def main() -> None:
     test_meeting_state_db()
     test_yougile_write_idempotent()
     test_yougile_write_dedup_by_column_title()
+    test_simplenote_classify_and_fastpath()
     test_provider_failover()
     test_transcribe_format_guard()
     test_orchestrator_phase1()

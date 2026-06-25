@@ -27,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import repo
+import simplenote_source
 from db import create_all
 from downloader import DownloadError, download
 from orchestrator import run_phase1, run_phase2
@@ -60,6 +61,14 @@ class PersonBody(BaseModel):
     name: str
     specialty: Optional[str] = None
     project: Optional[str] = None
+
+
+class SimpleNoteProcessBody(BaseModel):
+    note_ids: list[str]
+    project: Optional[str] = None
+    yougile_project_id: Optional[str] = None
+    yougile_board_id: Optional[str] = None
+    yougile_column_id: Optional[str] = None
 
 
 def _persist_yougile_projects_cache(projects: list[dict]) -> None:
@@ -160,6 +169,59 @@ def remove_person(person_id: int) -> dict:
     if not repo.delete_person(person_id):
         raise HTTPException(404, "Сотрудник не найден")
     return {"deleted": person_id}
+
+
+@app.get("/api/simplenote/notes")
+def simplenote_notes(tag: Optional[str] = "task") -> list[dict]:
+    """Список заметок SimpleNote (по умолчанию фильтр по тегу 'task'). Только чтение."""
+    try:
+        notes = simplenote_source.get_notes(tag or None)
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"SimpleNote: {e}")
+    # content в списке не отдаём целиком — только превью/тип (контент тянем при обработке)
+    return [{"id": n["id"], "preview": n["preview"], "type": n["type"],
+             "modifydate": n["modifydate"], "tags": n["tags"]} for n in notes]
+
+
+@app.post("/api/simplenote/process")
+def simplenote_process(body: SimpleNoteProcessBody, background: BackgroundTasks) -> dict:
+    """Обработать выбранные заметки. Структурные — быстрый путь (без LLM), сырые — через LLM.
+
+    Каждая заметка → отдельный meeting(awaiting_review), как и аудио/ссылка.
+    """
+    if not body.note_ids:
+        raise HTTPException(400, "Не выбрано ни одной заметки")
+    # Маршрут выбранного проекта YouGile → таблица projects (как в /upload).
+    if body.project and body.yougile_board_id and body.yougile_column_id:
+        repo.upsert_project_route(body.project, body.yougile_project_id,
+                                  body.yougile_board_id, body.yougile_column_id)
+
+    results: list[dict] = []
+    for nid in body.note_ids:
+        try:
+            content = simplenote_source.get_note_content(nid)
+        except Exception as e:  # noqa: BLE001
+            raise HTTPException(502, f"SimpleNote: {e}")
+        if content is None:
+            results.append({"note_id": nid, "error": "заметка не найдена"})
+            continue
+
+        ntype = simplenote_source.classify_note(content)
+        meeting_id = repo.create_meeting(source_file=f"simplenote:{nid}", status="uploaded")
+
+        if ntype == "structured":
+            # Быстрый путь: без LLM, синхронно.
+            n = simplenote_source.process_structured(meeting_id, content, body.project)
+            results.append({"note_id": nid, "meeting_id": meeting_id,
+                            "type": "structured", "tasks": n})
+        else:
+            # Сырая заметка → обычный пайплайн (LLM) в фоне: пишем контент во временный файл.
+            dest = UPLOADS / f"meeting_{meeting_id}.txt"
+            dest.write_text(content, encoding="utf-8")
+            background.add_task(_run_phase1_bg, meeting_id, str(dest), body.project)
+            results.append({"note_id": nid, "meeting_id": meeting_id, "type": "raw"})
+
+    return {"results": results}
 
 
 @app.post("/api/upload")

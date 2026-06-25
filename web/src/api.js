@@ -48,6 +48,24 @@ export const api = {
   deletePerson: (id) =>
     fetch(`/api/people/${id}`, { method: "DELETE" }).then(jOrErr),
 
+  simplenoteNotes: (tag) =>
+    fetch("/api/simplenote/notes" + (tag ? `?tag=${encodeURIComponent(tag)}` : "")).then(jOrErr),
+
+  simplenoteProcess: (note_ids, project) => {
+    const body = { note_ids };
+    if (project) {
+      body.project = project.title;
+      body.yougile_project_id = project.project_id;
+      body.yougile_board_id = project.board_id;
+      body.yougile_column_id = project.column_id;
+    }
+    return fetch("/api/simplenote/process", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(jOrErr);
+  },
+
   upload: (file, project) => {
     const fd = new FormData();
     fd.append("file", file);

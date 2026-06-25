@@ -61,7 +61,12 @@ input, select { font-family: inherit; font-size: inherit; color: inherit; }
   letter-spacing: -0.01em;
 }
 .wordmark .arrow { color: var(--teal); }
+.wordmark.clickable { cursor: pointer; }
+.wordmark.clickable:hover { opacity: 0.7; }
 .masthead-meta { text-align: right; }
+
+/* Кнопка возврата в главное меню (на экранах обработки/ревью/отправки). */
+.back-btn { margin-bottom: 14px; }
 
 .wrap { max-width: 880px; margin: 0 auto; padding: 28px 24px 140px; }
 
@@ -106,6 +111,31 @@ select, .text-input {
 
 .upload-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .btn-small { padding: 7px 13px; font-size: 13px; font-family: var(--mono); }
+
+/* переключатель источника входа */
+.source-tabs { display: flex; gap: 0; border: 1px solid var(--line-strong); border-radius: 4px; overflow: hidden; margin-bottom: 16px; width: fit-content; }
+.source-tab {
+  font-family: var(--mono); font-size: 13px; padding: 8px 16px; border: none;
+  background: var(--card); color: var(--muted); border-right: 1px solid var(--line);
+}
+.source-tab:last-child { border-right: none; }
+.source-tab.active { background: var(--ink); color: #fff; }
+.source-tab:not(.active):hover { background: var(--paper); color: var(--ink); }
+
+/* SimpleNote-панель */
+.sn-panel { margin-top: 4px; }
+.sn-controls { display: flex; gap: 14px; align-items: flex-end; }
+.sn-list { list-style: none; margin: 16px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 4px; max-height: 320px; overflow-y: auto; }
+.sn-list li { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+.sn-list li:last-child { border-bottom: none; }
+.sn-list input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--teal); flex: none; }
+.sn-preview { flex: 1; min-width: 0; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sn-badge { font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 2px; flex: none; }
+.sn-badge.struct { background: #d7ece6; color: var(--teal-dark); }
+.sn-badge.raw { background: var(--amber-bg); color: var(--amber-ink); border: 1px solid var(--amber-line); }
+.sn-panel .field-row { margin-top: 14px; align-items: center; }
+.sn-panel .count { font-family: var(--mono); font-size: 13px; color: var(--muted); }
+.sn-panel .count b { color: var(--ink); }
 
 /* url row */
 .url-row { display: flex; align-items: center; gap: 12px; margin-top: 14px; }
