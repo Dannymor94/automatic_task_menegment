@@ -1,0 +1,11 @@
+openai>=1.30
+python-dotenv>=1.0
+# E2: БД, миграции, YouGile API
+sqlalchemy>=2.0
+alembic>=1.13
+psycopg2-binary>=2.9   # драйвер Postgres (прод); локально работает SQLite без него
+requests>=2.31
+# E4: веб-бэкенд
+fastapi>=0.110
+uvicorn[standard]>=0.27
+python-multipart>=0.0.9

@@ -1,0 +1,31 @@
+# --- СЕКРЕТЫ (никогда не коммитить) ---
+.env
+.claude/settings.local.json
+
+# --- Данные и рантайм ---
+*.db
+e2_local.db
+uploads/
+logs/
+out/
+# Приватные транскрипты/аудио созвонов — не публикуем (см. CLAUDE.md: согласие участников).
+raw/*
+!raw/.gitkeep
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# --- Node / сборка фронта ---
+web/node_modules/
+web/dist/
+
+# --- ОС / редактор / инструменты ---
+.DS_Store
+.playwright-mcp/
+
+# --- Отладочные скриншоты (артефакты разработки) ---
+/*.png

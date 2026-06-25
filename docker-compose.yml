@@ -1,0 +1,25 @@
+# PostgreSQL для E2 (справочники + состояние созвонов).
+# Запуск: docker compose up -d
+# Затем применить миграции: DATABASE_URL=postgresql+psycopg2://sozvon:sozvon@localhost:5432/sozvon alembic upgrade head
+#
+# Прод-движок — Postgres. Локально без Docker код работает на SQLite (см. db.py).
+services:
+  db:
+    image: postgres:16
+    container_name: sozvon_pg
+    environment:
+      POSTGRES_USER: sozvon
+      POSTGRES_PASSWORD: sozvon
+      POSTGRES_DB: sozvon
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sozvon -d sozvon"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
