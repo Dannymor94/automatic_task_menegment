@@ -10,6 +10,14 @@ const FIELD_FLAG = {
 const HARD_FLAGS = new Set(["no_grounding"]);
 const PRIORITIES = ["low", "medium", "high", "urgent"];
 
+// Сегодняшняя дата в формате YYYY-MM-DD по локальному времени (для кнопки «Сегодня»).
+function todayISO() {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
 const STEPS = [
   { key: "transcribing", label: "Транскрибируется" },
   { key: "processing", label: "Разбирается на задачи" },
@@ -387,6 +395,17 @@ function TeamModal({ projects, defaultProject, onClose }) {
     }
   };
 
+  // Отметить/снять дефолтную роль (исполнитель/контролёр) для проекта человека.
+  const setDefault = async (p, role) => {
+    setWarning(null);
+    try {
+      await api.setDefaultRole(p.id, p.default_role === role ? null : role);
+      await reload();
+    } catch (e) {
+      setWarning(String(e.message || e));
+    }
+  };
+
   return (
     <div className="modal-backdrop" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -394,6 +413,8 @@ function TeamModal({ projects, defaultProject, onClose }) {
           <h3>База команды</h3>
           <button className="x" onClick={onClose} aria-label="Закрыть">×</button>
         </div>
+        <p className="def-hint">★ Отметьте дефолтных <b>И</b> — исполнителя и <b>К</b> — контролёра проекта.
+          Они подставятся в задачи, где роль не заполнена. Дефолт — один на проект.</p>
 
         <ul className="team-list">
           {people.length === 0 && <li className="empty">Пока никого. Добавьте первого сотрудника.</li>}
@@ -408,6 +429,14 @@ function TeamModal({ projects, defaultProject, onClose }) {
                 <span className="t-proj">{p.project || "—"}</span>
                 <span className={"t-id " + (p.matched ? "ok" : "none")}>
                   {p.matched ? "YouGile ✓" : "id не найден"}
+                </span>
+                <span className="t-default">
+                  <button className={"def-btn" + (p.default_role === "assignee" ? " on" : "")}
+                    title="Дефолтный исполнитель проекта"
+                    onClick={() => setDefault(p, "assignee")}>И</button>
+                  <button className={"def-btn" + (p.default_role === "controller" ? " on" : "")}
+                    title="Дефолтный контролёр проекта"
+                    onClick={() => setDefault(p, "controller")}>К</button>
                 </span>
                 <span className="t-actions">
                   <button className="row-btn" title="Редактировать" onClick={() => { setEditId(p.id); setWarning(null); }}>✎</button>
@@ -479,12 +508,49 @@ function Processing({ status, onHome }) {
   );
 }
 
+// Дефолт роли для проекта: точное совпадение проекта; если у задачи нет проекта
+// или в проекте нет дефолта — берём единственный отмеченный дефолт, если он один.
+function defaultName(people, role, project) {
+  const marked = people.filter((p) => p.default_role === role);
+  if (project) {
+    const inProj = marked.filter((p) => p.project === project);
+    if (inProj.length) return inProj[0].name;
+  }
+  return marked.length === 1 ? marked[0].name : null;
+}
+
 function Review({ tasks, setTasks, onSend, onHome }) {
+  const [people, setPeople] = useState([]);
+  const [projects, setProjects] = useState([]);
+  const [teamOpen, setTeamOpen] = useState(false);
+  const prefilled = useRef(false);
+
+  const loadPeople = () => api.people().then(setPeople).catch(() => {});
+  useEffect(() => {
+    loadPeople();
+    api.yougileProjects().then(setProjects).catch(() => {});
+  }, []);
+
+  // Один раз после загрузки людей: где исполнитель/контролёр пусты — подставить дефолт проекта.
+  useEffect(() => {
+    if (prefilled.current || people.length === 0 || tasks.length === 0) return;
+    prefilled.current = true;
+    setTasks(tasks.map((t) => ({
+      ...t,
+      assignee: t.assignee || defaultName(people, "assignee", t.project) || t.assignee,
+      controller: t.controller || defaultName(people, "controller", t.project) || t.controller,
+    })));
+  }, [people, tasks, setTasks]);
+
   const flaggedCount = tasks.filter((t) => (t.validator_flags || []).length).length;
   const approvedCount = tasks.filter((t) => t._approved).length;
 
   const update = (i, patch) =>
     setTasks(tasks.map((t, j) => (j === i ? { ...t, ...patch } : t)));
+
+  // Имена для подсказок комбобокса (по проекту задачи, иначе все).
+  const namesFor = (project) =>
+    people.filter((p) => !project || !p.project || p.project === project).map((p) => p.name);
 
   return (
     <section>
@@ -494,13 +560,19 @@ function Review({ tasks, setTasks, onSend, onHome }) {
           <div className="eyebrow">шаг 3 · ревью · запись только по одобрению</div>
           <h1>Черновики задач</h1>
         </div>
-        <div className="tally">
-          {tasks.length} задач · <b>{flaggedCount}</b> с флагами
+        <div className="review-head-right">
+          <button className="btn-ghost btn-small" onClick={() => setTeamOpen(true)}>
+            ✎ Роли по умолчанию
+          </button>
+          <div className="tally">
+            {tasks.length} задач · <b>{flaggedCount}</b> с флагами
+          </div>
         </div>
       </div>
 
       {tasks.map((t, i) => (
-        <TaskCard key={t.internal_id || i} task={t} onChange={(p) => update(i, p)} />
+        <TaskCard key={t.internal_id || i} task={t} names={namesFor(t.project)}
+          onChange={(p) => update(i, p)} />
       ))}
 
       <div className="actionbar">
@@ -513,16 +585,24 @@ function Review({ tasks, setTasks, onSend, onHome }) {
           </button>
         </div>
       </div>
+
+      {teamOpen && (
+        <TeamModal projects={projects} defaultProject={tasks[0]?.project || ""}
+          onClose={() => { setTeamOpen(false); loadPeople(); }} />
+      )}
     </section>
   );
 }
 
-function TaskCard({ task, onChange }) {
+function TaskCard({ task, names = [], onChange }) {
   const [showSrc, setShowSrc] = useState(false);
   const flags = task.validator_flags || [];
   const hasFlag = (f) => flags.includes(f);
   const fieldFlagged = (field) => hasFlag(FIELD_FLAG[field]);
   const noGrounding = hasFlag("no_grounding");
+  const uid = task.internal_id || task.title || "x";
+  const listA = `who-a-${uid}`;
+  const listC = `who-c-${uid}`;
 
   return (
     <article className={"card" + (task._approved ? " approved" : " dropped")}>
@@ -544,19 +624,30 @@ function TaskCard({ task, onChange }) {
 
       <div className="meta">
         <Field label="Исполнитель" flagged={fieldFlagged("assignee")}>
-          <input value={task.assignee || ""} onChange={(e) => onChange({ assignee: e.target.value })} />
+          <input list={listA} placeholder="— задать роль —"
+            value={task.assignee || ""}
+            onChange={(e) => onChange({ assignee: e.target.value || null })} />
+          <datalist id={listA}>
+            {names.map((n) => <option key={n} value={n} />)}
+          </datalist>
           <IdPill id={task.assignee_id} />
         </Field>
         <Field label="Контролёр" flagged={fieldFlagged("controller")}>
-          <input value={task.controller || ""} onChange={(e) => onChange({ controller: e.target.value })} />
+          <input list={listC} placeholder="— задать роль —"
+            value={task.controller || ""}
+            onChange={(e) => onChange({ controller: e.target.value || null })} />
+          <datalist id={listC}>
+            {names.map((n) => <option key={n} value={n} />)}
+          </datalist>
           <IdPill id={task.controller_id} />
         </Field>
         <Field label="Срок" flagged={fieldFlagged("due_date")}>
-          <input
-            placeholder="—"
-            value={task.due_date || ""}
-            onChange={(e) => onChange({ due_date: e.target.value || null })}
-          />
+          <div className="due-row">
+            <input type="date" value={task.due_date || ""}
+              onChange={(e) => onChange({ due_date: e.target.value || null })} />
+            <button type="button" className="today-btn" title="Поставить сегодняшнюю дату"
+              onClick={() => onChange({ due_date: todayISO() })}>Сегодня</button>
+          </div>
         </Field>
         <Field label="Приоритет">
           <select value={task.priority || "medium"} onChange={(e) => onChange({ priority: e.target.value })}>

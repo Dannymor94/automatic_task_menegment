@@ -48,6 +48,14 @@ export const api = {
   deletePerson: (id) =>
     fetch(`/api/people/${id}`, { method: "DELETE" }).then(jOrErr),
 
+  // Отметить человека дефолтным исполнителем/контролёром проекта (role=null — снять).
+  setDefaultRole: (id, role) =>
+    fetch(`/api/people/${id}/default`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    }).then(jOrErr),
+
   simplenoteNotes: (tag) =>
     fetch("/api/simplenote/notes" + (tag ? `?tag=${encodeURIComponent(tag)}` : "")).then(jOrErr),
 

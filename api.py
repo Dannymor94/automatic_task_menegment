@@ -63,6 +63,10 @@ class PersonBody(BaseModel):
     project: Optional[str] = None
 
 
+class DefaultRoleBody(BaseModel):
+    role: Optional[str] = None  # "assignee" | "controller" | None (снять)
+
+
 class SimpleNoteProcessBody(BaseModel):
     note_ids: list[str]
     project: Optional[str] = None
@@ -169,6 +173,17 @@ def remove_person(person_id: int) -> dict:
     if not repo.delete_person(person_id):
         raise HTTPException(404, "Сотрудник не найден")
     return {"deleted": person_id}
+
+
+@app.post("/api/people/{person_id}/default")
+def set_person_default(person_id: int, body: DefaultRoleBody) -> dict:
+    """Отметить человека дефолтным исполнителем/контролёром его проекта (или снять)."""
+    if body.role not in (None, "assignee", "controller"):
+        raise HTTPException(400, "role: assignee | controller | null")
+    person = repo.set_default_role(person_id, body.role)
+    if person is None:
+        raise HTTPException(404, "Сотрудник не найден")
+    return {"person": person}
 
 
 @app.get("/api/simplenote/notes")

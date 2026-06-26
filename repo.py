@@ -60,20 +60,26 @@ def list_people(project: str | None = None) -> list[dict]:
         return [
             {"id": p.id, "name": p.name, "specialty": p.specialty,
              "project": p.project, "yougile_user_id": p.yougile_user_id,
-             "matched": bool(p.yougile_user_id)}
+             "default_role": p.default_role, "matched": bool(p.yougile_user_id)}
             for p in q.all()
         ]
+
+
+def _person_row(p) -> dict:
+    return {"id": p.id, "name": p.name, "specialty": p.specialty,
+            "project": p.project, "yougile_user_id": p.yougile_user_id,
+            "default_role": p.default_role, "matched": bool(p.yougile_user_id)}
 
 
 def upsert_person(
     name: str, specialty: str | None, project: str | None, yougile_user_id: str | None
 ) -> dict:
-    """Завести/обновить сотрудника. Возвращает строку."""
+    """Завести/обновить сотрудника. Роль по умолчанию не выставляем — её задают явно."""
     with session_scope() as s:
         p = s.query(Person).filter(Person.name == name).one_or_none()
         if p is None:
             p = Person(name=name, specialty=specialty, project=project,
-                       yougile_user_id=yougile_user_id, default_role="assignee")
+                       yougile_user_id=yougile_user_id, default_role=None)
             s.add(p)
         else:
             p.specialty = specialty
@@ -81,9 +87,33 @@ def upsert_person(
             if yougile_user_id is not None:
                 p.yougile_user_id = yougile_user_id
         s.flush()
-        return {"id": p.id, "name": p.name, "specialty": p.specialty,
-                "project": p.project, "yougile_user_id": p.yougile_user_id,
-                "matched": bool(p.yougile_user_id)}
+        return _person_row(p)
+
+
+def set_default_role(person_id: int, role: str | None) -> dict | None:
+    """Отметить человека дефолтным исполнителем/контролёром его проекта.
+
+    role ∈ {"assignee", "controller", None}. Дефолт — единственный на проект:
+    при назначении снимаем ту же роль у остальных людей этого же проекта.
+    None — снять отметку.
+    """
+    with session_scope() as s:
+        p = s.get(Person, person_id)
+        if p is None:
+            return None
+        if role in ("assignee", "controller"):
+            others = s.query(Person).filter(
+                Person.project == p.project,
+                Person.default_role == role,
+                Person.id != p.id,
+            )
+            for o in others:
+                o.default_role = None
+            p.default_role = role
+        else:
+            p.default_role = None
+        s.flush()
+        return _person_row(p)
 
 
 def update_person(
@@ -100,9 +130,7 @@ def update_person(
         p.project = project
         p.yougile_user_id = yougile_user_id
         s.flush()
-        return {"id": p.id, "name": p.name, "specialty": p.specialty,
-                "project": p.project, "yougile_user_id": p.yougile_user_id,
-                "matched": bool(p.yougile_user_id)}
+        return _person_row(p)
 
 
 def delete_person(person_id: int) -> bool:
