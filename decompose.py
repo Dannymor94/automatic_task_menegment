@@ -3,7 +3,7 @@
 ЕДИНСТВЕННАЯ точка, где работает LLM (см. pipeline-conventions, decompose-prompt).
 Всё остальное в пайплайне — детерминированный код.
 
-Системный промпт берётся из CLAUDE.md (не дублируется здесь).
+Системный промпт берётся из prompts/decompose_en.md (дефолт) или prompts/decompose.md.
 Провайдер за конфигом (LLM_BASE_URL + LLM_MODEL + LLM_API_KEY) — тест→локаль одной строкой.
 """
 
@@ -23,7 +23,7 @@ from providers import ProviderPool, load_providers
 load_dotenv()
 
 BASE_DIR = Path(__file__).parent
-# Рантайм-промпты декомпозиции (разделы 2–8), НЕ документация проекта (CLAUDE.md).
+# Рантайм-промпты декомпозиции (разделы 2–8). Полный архив правил — docs/SYSTEM_PROMPT_FULL.md.
 # EN — основной по итогам A/B (крепче grounding на речи без якорей); RU — A/B-альтернатива.
 PROMPT_FILES = {
     "en": BASE_DIR / "prompts" / "decompose_en.md",
